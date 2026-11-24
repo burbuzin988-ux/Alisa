@@ -3,16 +3,20 @@ package com.example.alisa
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -32,16 +36,21 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(0, 24, 0, 24)
         }
-        commands = CommandHandler(applicationContext) { status.text = it }
+        commands = CommandHandler(applicationContext, say = { status.text = it })
 
         val avatar = ImageView(this).apply {
             setImageResource(R.drawable.alisa_avatar)
-            layoutParams = LinearLayout.LayoutParams(560, 560)
+            layoutParams = LinearLayout.LayoutParams(420, 420)
         }
         val title = TextView(this).apply {
             text = "Алиса"
             textSize = 28f
             gravity = Gravity.CENTER
+        }
+        val keyField = EditText(this).apply {
+            hint = "Ключ API для ответов на вопросы (необязательно)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine()
         }
 
         fun button(label: String, onClick: () -> Unit) = Button(this).apply {
@@ -67,11 +76,25 @@ class MainActivity : AppCompatActivity() {
                 stopService(Intent(this@MainActivity, ListenService::class.java))
                 status.text = "Фоновое прослушивание выключено"
             })
+            addView(button("Разрешить окошко Алисы поверх экрана") {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            })
             addView(button("Специальные возможности") {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
+            addView(keyField)
+            addView(button("Сохранить ключ") {
+                Prefs.setApiKey(this@MainActivity, keyField.text.toString())
+                keyField.setText("")
+                status.text = "Ключ сохранён"
+            })
         }
-        setContentView(layout)
+        setContentView(ScrollView(this).apply { addView(layout) })
 
         val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
