@@ -16,21 +16,35 @@ import android.speech.SpeechRecognizer
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 
-/** Постоянно слушает и реагирует на фразы со словом «Алиса». */
+/** Постоянно слушает, реагирует на фразы со словом «Алиса» и показывает окошко с аватаром. */
 class ListenService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private lateinit var commands: CommandHandler
+    private var overlay: AvatarOverlay? = null
     private var running = true
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        commands = CommandHandler(this) { msg ->
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        Speaker.init(this)
+
+        overlay = AvatarOverlay(this) {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
+        overlay?.show()
+        Speaker.onSpeakingChanged = { speaking -> overlay?.setSpeaking(speaking) }
+
+        commands = CommandHandler(
+            this,
+            say = { msg -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() },
+            onHeard = { overlay?.perk() }
+        )
+
         val channelId = "alisa_listen"
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
@@ -49,13 +63,20 @@ class ListenService : Service() {
 
     private fun listen() {
         if (!running) return
+        if (Speaker.recentlySpoke()) {
+            restart()
+            return
+        }
         recognizer?.destroy()
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle?) {
-                    results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val text = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull()
-                        ?.let { commands.handle(it, requireName = true) }
+                    if (text != null && !Speaker.recentlySpoke()) {
+                        commands.handle(text, requireName = true)
+                    }
                     restart()
                 }
                 override fun onError(error: Int) { restart() }
@@ -83,6 +104,8 @@ class ListenService : Service() {
         running = false
         handler.removeCallbacksAndMessages(null)
         recognizer?.destroy()
+        Speaker.onSpeakingChanged = null
+        overlay?.hide()
         super.onDestroy()
     }
 }
