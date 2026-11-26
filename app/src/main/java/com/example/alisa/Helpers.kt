@@ -1,9 +1,6 @@
 package com.example.alisa
 
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.content.Context
-import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
@@ -13,11 +10,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import android.view.animation.AccelerateDecelerateInterpolator
-import android.widget.FrameLayout
-import android.widget.ImageView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -43,6 +36,7 @@ object Speaker {
     @Volatile private var startedAt = 0L
     @Volatile private var lastEnd = 0L
     var onSpeakingChanged: ((Boolean) -> Unit)? = null
+    var uiListener: ((Boolean) -> Unit)? = null
 
     /** Чтобы Алиса не слушала саму себя. */
     fun recentlySpoke(): Boolean {
@@ -69,7 +63,10 @@ object Speaker {
     private fun change(speaking: Boolean) {
         isSpeaking = speaking
         if (speaking) startedAt = System.currentTimeMillis() else lastEnd = System.currentTimeMillis()
-        main.post { onSpeakingChanged?.invoke(speaking) }
+        main.post {
+            onSpeakingChanged?.invoke(speaking)
+            uiListener?.invoke(speaking)
+        }
     }
 
     fun speak(text: String) {
@@ -143,17 +140,17 @@ object AiClient {
     }
 }
 
-/** Маленькое круглое окошко с Алисой поверх всех приложений. Можно перетаскивать. */
+/** Маленькое круглое окошко с анимированной Алисой поверх всех приложений. Можно перетаскивать. */
 class AvatarOverlay(private val ctx: Context, private val onTap: () -> Unit) {
 
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private var container: FrameLayout? = null
-    private var image: ImageView? = null
-    private var bob: ObjectAnimator? = null
+    private var view: AlisaView? = null
+
+    private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
 
     private val params = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.WRAP_CONTENT,
+        dp(110),
+        dp(110),
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
         PixelFormat.TRANSLUCENT
@@ -163,36 +160,17 @@ class AvatarOverlay(private val ctx: Context, private val onTap: () -> Unit) {
         y = 300
     }
 
-    private fun dp(v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
-
     fun show() {
-        if (container != null || !Settings.canDrawOverlays(ctx)) return
-        val pad = dp(12)
-        val img = ImageView(ctx).apply {
-            setImageResource(R.drawable.alisa_avatar)
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-            clipToOutline = true
-        }
-        val box = FrameLayout(ctx).apply {
-            clipChildren = false
-            addView(img, FrameLayout.LayoutParams(dp(90), dp(90)).apply {
-                setMargins(pad, pad, pad, pad)
-            })
-            setOnTouchListener(dragListener())
-        }
+        if (view != null || !Settings.canDrawOverlays(ctx)) return
+        val v = AlisaView(ctx)
+        v.circular = true
+        v.setOnTouchListener(dragListener())
         try {
-            wm.addView(box, params)
+            wm.addView(v, params)
         } catch (e: Exception) {
             return
         }
-        container = box
-        image = img
-        startBob(false)
+        view = v
     }
 
     private fun dragListener() = object : View.OnTouchListener {
@@ -230,42 +208,23 @@ class AvatarOverlay(private val ctx: Context, private val onTap: () -> Unit) {
         }
     }
 
-    /** Когда Алиса говорит, она подпрыгивает быстрее. */
+    /** Когда Алиса говорит, она шевелит губами. */
     fun setSpeaking(speaking: Boolean) {
-        startBob(speaking)
+        view?.speaking = speaking
     }
 
     /** Короткий «кивок», когда Алиса услышала своё имя. */
     fun perk() {
-        val img = image ?: return
-        img.animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).withEndAction {
-            img.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
-        }.start()
-    }
-
-    private fun startBob(fast: Boolean) {
-        val img = image ?: return
-        bob?.cancel()
-        img.translationY = 0f
-        bob = ObjectAnimator.ofFloat(img, "translationY", 0f, -dp(if (fast) 8 else 5).toFloat()).apply {
-            duration = if (fast) 300L else 1400L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = AccelerateDecelerateInterpolator()
-            start()
-        }
+        view?.perk()
     }
 
     fun hide() {
-        bob?.cancel()
-        bob = null
-        container?.let {
+        view?.let {
             try {
                 wm.removeView(it)
             } catch (e: Exception) {
             }
         }
-        container = null
-        image = null
+        view = null
     }
 }
