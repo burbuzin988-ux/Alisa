@@ -26,17 +26,48 @@ class CommandHandler(
         Speaker.init(ctx)
     }
 
-    private val aliases = mapOf(
-        "телеграм" to "telegram",
-        "телеграмм" to "telegram",
-        "ватсап" to "whatsapp",
-        "ютуб" to "youtube",
-        "камера" to "camera",
-        "камеру" to "camera",
-        "настройки" to "settings",
-        "хром" to "chrome",
-        "карты" to "maps"
+    // Как человек говорит -> какие слова искать в названии приложения
+    private val aliases: Map<String, List<String>> = mapOf(
+        "телеграм" to listOf("telegram"),
+        "телеграмм" to listOf("telegram"),
+        "твич" to listOf("twitch"),
+        "твитч" to listOf("twitch"),
+        "ютуб" to listOf("youtube"),
+        "ютьюб" to listOf("youtube"),
+        "ватсап" to listOf("whatsapp"),
+        "вотсап" to listOf("whatsapp"),
+        "вацап" to listOf("whatsapp"),
+        "вк" to listOf("vk", "вконтакте"),
+        "вконтакте" to listOf("vk", "вконтакте"),
+        "инстаграм" to listOf("instagram"),
+        "тикток" to listOf("tiktok"),
+        "дискорд" to listOf("discord"),
+        "стим" to listOf("steam"),
+        "спотифай" to listOf("spotify"),
+        "нетфликс" to listOf("netflix"),
+        "яндекс" to listOf("yandex", "яндекс"),
+        "почта" to listOf("gmail", "почта", "mail"),
+        "гмейл" to listOf("gmail"),
+        "галерея" to listOf("gallery", "галерея", "photos", "фото"),
+        "фото" to listOf("photos", "фото", "gallery", "галерея"),
+        "калькулятор" to listOf("calculator", "калькулятор"),
+        "часы" to listOf("clock", "часы"),
+        "камера" to listOf("camera", "камера"),
+        "камеру" to listOf("camera", "камера"),
+        "настройки" to listOf("settings", "настройки"),
+        "хром" to listOf("chrome"),
+        "браузер" to listOf("chrome", "browser", "браузер"),
+        "карты" to listOf("maps", "карты"),
+        "плей маркет" to listOf("play store", "play маркет", "google play"),
+        "гугл" to listOf("google"),
+        "контакты" to listOf("contacts", "контакты"),
+        "телефон" to listOf("phone", "телефон", "dialer"),
+        "сообщения" to listOf("messages", "сообщения"),
+        "музыка" to listOf("music", "музыка")
     )
+
+    // Лишние слова, которые не входят в название приложения
+    private val fillerWords = setOf("приложение", "приложуху", "программу", "пожалуйста", "мне")
 
     private val numberWords = mapOf(
         "один" to 1, "одну" to 1, "два" to 2, "две" to 2, "три" to 3, "четыре" to 4,
@@ -257,24 +288,27 @@ class CommandHandler(
     // ---------- Приложения и Telegram ----------
 
     private fun openApp(spoken: String): Boolean {
-        val query = aliases[spoken.trim()] ?: spoken.trim()
+        val name = spoken.lowercase().split(" ")
+            .filter { it.isNotBlank() && it !in fillerWords }
+            .joinToString(" ")
+        val candidates = (aliases[name] ?: emptyList()) + name
         val pm = ctx.packageManager
-        val launchers = pm.queryIntentActivities(
+        val labels = pm.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
-        )
-        val match = launchers.firstOrNull {
-            it.loadLabel(pm).toString().lowercase().contains(query)
-        }
-        val intent = match?.let { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
+        ).map { it to it.loadLabel(pm).toString().lowercase() }
+        // Сначала точное совпадение названия, потом частичное
+        val match = labels.firstOrNull { (_, l) -> candidates.any { l == it } }
+            ?: labels.firstOrNull { (_, l) -> candidates.any { l.contains(it) } }
+        val intent = match?.let { pm.getLaunchIntentForPackage(it.first.activityInfo.packageName) }
         return if (intent != null) {
             if (launch(intent)) {
-                reply("Открываю: $spoken")
+                reply("Открываю: $name")
                 true
             } else {
                 false
             }
         } else {
-            reply("Не нашла приложение: $spoken")
+            reply("Не нашла приложение: $name")
             false
         }
     }
